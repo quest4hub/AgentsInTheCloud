@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-system_repository=ghcr.io/lucasmeijer/agents-in-the-cloud-system
+system_repository=ghcr.io/quest4hub/agents-in-the-cloud-system
 system_image=""
-app_image=ghcr.io/lucasmeijer/agents-in-the-cloud:latest
+app_image=ghcr.io/quest4hub/agents-in-the-cloud:latest
 action=""
 uninstall_requested=0
 access_mode=""
