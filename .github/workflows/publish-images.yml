@@ -26,6 +26,10 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # apps/web/Dockerfile uses COPY --exclude; the daemon's builtin frontend
+      # rejects it, so build with a docker-container builder instead.
+      - uses: docker/setup-buildx-action@v3
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
