@@ -1,0 +1,86 @@
+name: Publish fork images
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-fork-images
+  cancel-in-progress: false
+
+jobs:
+  app:
+    name: App image (+ pinned workspace image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # build script tags via git describe
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and push app image
+        env:
+          GH_PACKAGE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun run scripts/build-agents-in-the-cloud-image.ts --push --progress plain
+
+  system:
+    name: System image (single-arch fork build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Install dependencies
+        run: |
+          bun install --frozen-lockfile
+          bun install --cwd images/system --frozen-lockfile
+
+      - name: Build System bundle
+        run: bun images/system/build.ts
+
+      - name: Compute image refs and labels
+        id: meta
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner="${OWNER,,}"
+          echo "image=ghcr.io/${owner}/agents-in-the-cloud-system" >> "$GITHUB_OUTPUT"
+          echo "version=$(bun -e 'import { systemVersion } from "./packages/shared/src/system-version.ts"; process.stdout.write(String(systemVersion))')" >> "$GITHUB_OUTPUT"
+          echo "label=$(bun -e 'import { systemVersionLabel } from "./packages/shared/src/system-version.ts"; process.stdout.write(systemVersionLabel)')" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push System image
+        env:
+          GH_PACKAGE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "${GH_PACKAGE_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ref="${{ steps.meta.outputs.image }}:sha-${GITHUB_SHA}"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --push \
+            --progress plain \
+            --tag "$ref" \
+            --tag "${{ steps.meta.outputs.image }}:latest" \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "${{ steps.meta.outputs.label }}=${{ steps.meta.outputs.version }}" \
+            --file images/system/Dockerfile \
+            images/system
