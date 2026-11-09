@@ -35,8 +35,11 @@ const mitmTargetServers = new Map<string, Promise<MitmTargetServer>>();
 /** A policy-checked destination for direct connections; trusted upstream proxies check their own. */
 type ResolvedDestination = { address: string; family: 4 | 6 };
 
-type MitmConnectionContext = { context: ProxyContext; hostname: string };
-type MitmTargetServer = { server: ReturnType<typeof createHttpsServer>; port: number; connections: Map<number, MitmConnectionContext>; renewAt: number };
+type MitmProtocol = "http" | "https";
+/** The CONNECT-bound origin, rebuilt for request interception: scheme, hostname,
+ * and a port when it is not the scheme default. */
+type MitmConnectionContext = { context: ProxyContext; origin: string };
+type MitmTargetServer = { server: ReturnType<typeof createServer> | ReturnType<typeof createHttpsServer>; port: number; connections: Map<number, MitmConnectionContext>; renewAt: number };
 
 function workspaceProxyEnv() {
   const proxy = workspaceLocalProxyUrl;
@@ -175,14 +178,23 @@ async function handleConnect(ca: MitmCa, context: ProxyContext, req: IncomingMes
     socket.end("HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
     return;
   }
-  if (!(await shouldMitmConnectTarget(context, hostname))) return tunnelConnect(context.connect, destination.address, port, socket, head);
-  if (port !== 443) throw new HttpRequestBlockedError("MITM CONNECT only allowed to port 443");
-  const targetServer = await ensureMitmTargetServer(ca, hostname);
+  // Host-owned request bridges must see plaintext requests too: custom model
+  // endpoints are commonly plain HTTP on non-443 ports (a local llama.cpp server,
+  // for example), and no TLS listener can intercept those bytes. Workspace
+  // secrets deliberately keep the old restriction: their substitution is only
+  // defined for HTTPS interception, so other non-443 tunnels stay blocked.
+  const secretMatched = await secretHostsMatch(context, hostname);
+  const transformMatched = !secretMatched && (await workspaceRequestTransformMatchesHost(hostname));
+  if (!secretMatched && !transformMatched) return tunnelConnect(context.connect, destination.address, port, socket, head);
+  if (port !== 443 && !transformMatched) throw new HttpRequestBlockedError("MITM CONNECT only allowed to port 443");
+  const protocol: MitmProtocol = port === 443 ? "https" : "http";
+  const origin = port === 443 ? `https://${hostname}` : `http://${hostname}${port === 80 ? "" : `:${port}`}`;
+  const targetServer = await ensureMitmTargetServer(ca, hostname, protocol);
   socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
   let connectionPort: number | undefined;
   const bridge = net.connect(targetServer.port, "127.0.0.1", () => {
     connectionPort = bridge.localPort;
-    if (connectionPort) targetServer.connections.set(connectionPort, { context, hostname });
+    if (connectionPort) targetServer.connections.set(connectionPort, { context, origin });
     if (head.length) bridge.write(head);
   });
   socket.pipe(bridge).pipe(socket);
@@ -195,10 +207,9 @@ async function handleConnect(ca: MitmCa, context: ProxyContext, req: IncomingMes
   bridge.once("close", () => { cleanup(); socket.destroy(); });
 }
 
-async function shouldMitmConnectTarget(context: ProxyContext, hostname: string): Promise<boolean> {
+async function secretHostsMatch(context: ProxyContext, hostname: string): Promise<boolean> {
   const secrets = await context.secrets();
-  return secrets.secrets.some((secret) => secret.hosts.some((host) => matchHostname(hostname, host)))
-    || await workspaceRequestTransformMatchesHost(hostname);
+  return secrets.secrets.some((secret) => secret.hosts.some((host) => matchHostname(hostname, host)));
 }
 
 async function tunnelConnect(connect: ConnectUpstream, address: string, port: number, socket: Duplex, head: Buffer): Promise<void> {
@@ -223,8 +234,8 @@ async function tunnelConnect(connect: ConnectUpstream, address: string, port: nu
   });
 }
 
-async function ensureMitmTargetServer(ca: MitmCa, hostname: string): Promise<MitmTargetServer> {
-  const key = `${ca.dir}:${hostname.toLowerCase()}`;
+async function ensureMitmTargetServer(ca: MitmCa, hostname: string, protocol: MitmProtocol): Promise<MitmTargetServer> {
+  const key = `${ca.dir}:${protocol}:${hostname.toLowerCase()}`;
   const existing = mitmTargetServers.get(key);
   let expiring: MitmTargetServer | undefined;
   if (existing) {
@@ -233,7 +244,7 @@ async function ensureMitmTargetServer(ca: MitmCa, hostname: string): Promise<Mit
     if (mitmTargetServers.get(key) !== existing) return await mitmTargetServers.get(key)!;
     expiring = target;
   }
-  const created: Promise<MitmTargetServer> = startMitmTargetServer(ca, hostname).then((replacement) => {
+  const created: Promise<MitmTargetServer> = startMitmTargetServer(ca, hostname, protocol).then((replacement) => {
     expiring?.server.close();
     return replacement;
   }).catch((error) => {
@@ -247,26 +258,34 @@ async function ensureMitmTargetServer(ca: MitmCa, hostname: string): Promise<Mit
   return await created;
 }
 
-async function startMitmTargetServer(ca: MitmCa, hostname: string): Promise<MitmTargetServer> {
-  const leaf = await ensureLeafCertificate(ca, hostname);
+async function startMitmTargetServer(ca: MitmCa, hostname: string, protocol: MitmProtocol): Promise<MitmTargetServer> {
   const connections = new Map<number, MitmConnectionContext>();
-  const server = createHttpsServer({
-    cert: readFileSync(leaf.certPath),
-    key: readFileSync(leaf.keyPath),
-    ALPNProtocols: ["http/1.1"],
-  }, (mitmReq, mitmRes) => {
+  // Plaintext interception speaks plain HTTP into the same request pipeline; only
+  // HTTPS needs a per-hostname leaf certificate. The CONNECT-bound origin, never
+  // the inner Host header, selects the destination.
+  function handler(mitmReq: IncomingMessage, mitmRes: ServerResponse): void {
     const remotePort = mitmReq.socket.remotePort;
-    const context = remotePort ? connections.get(remotePort) : undefined;
-    if (!context) {
+    const connection = remotePort ? connections.get(remotePort) : undefined;
+    if (!connection) {
       writeError(mitmRes, proxyFailure(new HttpRequestBlockedError("unknown MITM connection")));
       return;
     }
     const path = mitmReq.url || "/";
-    mitmReq.url = `https://${context.hostname}${path.startsWith("/") ? path : `/${path}`}`;
-    void handleProxyHttp(context.context, mitmReq, mitmRes).catch((thrown) => {
+    mitmReq.url = `${connection.origin}${path.startsWith("/") ? path : `/${path}`}`;
+    void handleProxyHttp(connection.context, mitmReq, mitmRes).catch((thrown) => {
       handleProxyHttpFailure(mitmRes, thrown instanceof Error ? thrown : new Error(String(thrown)));
     });
-  });
+  }
+  let renewAt: number;
+  let server: ReturnType<typeof createServer> | ReturnType<typeof createHttpsServer>;
+  if (protocol === "https") {
+    const leaf = await ensureLeafCertificate(ca, hostname);
+    server = createHttpsServer({ cert: readFileSync(leaf.certPath), key: readFileSync(leaf.keyPath), ALPNProtocols: ["http/1.1"] }, handler);
+    renewAt = leaf.renewAt;
+  } else {
+    server = createServer(handler);
+    renewAt = Number.MAX_SAFE_INTEGER; // plaintext targets need no certificate renewal
+  }
   server.on("upgrade", (req, socket, head) => {
     socket.pause();
     const connection = req.socket.remotePort ? connections.get(req.socket.remotePort) : undefined;
@@ -274,9 +293,8 @@ async function startMitmTargetServer(ca: MitmCa, hostname: string): Promise<Mitm
       socket.end(connectErrorResponse(proxyFailure(new HttpRequestBlockedError("unknown MITM connection"))));
       return;
     }
-    // The CONNECT-bound hostname, never the inner Host header, selects the destination.
     const path = req.url || "/";
-    req.url = `https://${connection.hostname}${path.startsWith("/") ? path : `/${path}`}`;
+    req.url = `${connection.origin}${path.startsWith("/") ? path : `/${path}`}`;
     void handleProxyUpgrade(connection.context, req, socket, head).catch(error => socket.end(connectErrorResponse(proxyFailure(error))));
   });
   await new Promise<void>((resolve, reject) => {
@@ -287,7 +305,7 @@ async function startMitmTargetServer(ca: MitmCa, hostname: string): Promise<Mitm
   // SAFETY: This server listens with a TCP host and port, so Node returns an
   // AddressInfo rather than the string address used by Unix-domain sockets.
   const address = server.address() as AddressInfo;
-  return { server, port: address.port, connections, renewAt: leaf.renewAt };
+  return { server, port: address.port, connections, renewAt };
 }
 
 async function handleProxyHttp(context: ProxyContext, req: IncomingMessage, res: ServerResponse): Promise<void> {
