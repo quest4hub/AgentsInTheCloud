@@ -22,7 +22,7 @@ In local development, `bun run web` writes a temporary Docker build context unde
 When publishing AgentsInTheCloud with `bun run image:publish`, the publish script also builds and pushes the corresponding default workspace image to:
 
 ```txt
-ghcr.io/lucasmeijer/agents-in-the-cloud-workspace:<hash>
+ghcr.io/quest4hub/agents-in-the-cloud-workspace:<hash>
 ```
 
 The AgentsInTheCloud app image is built with that exact default workspace image reference baked into `/app/.agents-in-the-cloud-default-workspace-image`.

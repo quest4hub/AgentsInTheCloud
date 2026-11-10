@@ -37,7 +37,7 @@ docker() {
         atelier) return ${options.legacyPreSystem ? 0 : 1} ;;
       esac ;;
     'pull '*)
-      if [ "${options.pullDenied ? 1 : 0}" -eq 1 ]; then echo 'Error response from daemon: Head "https://ghcr.io/v2/lucasmeijer/agents-in-the-cloud-system/manifests/latest": denied: denied' >&2; return 1; fi
+      if [ "${options.pullDenied ? 1 : 0}" -eq 1 ]; then echo 'Error response from daemon: Head "https://ghcr.io/v2/quest4hub/agents-in-the-cloud-system/manifests/latest": denied: denied' >&2; return 1; fi
       return ${options.pullFails ? 1 : 0} ;;
     'volume ls') if [[ "$*" == *'name=^atelier-system$'* ]]; then if [ "${options.legacyVolumeOnly ? 1 : 0}" -eq 1 ]; then echo atelier-system; fi; return 0; fi; if [ "$volume_present" -eq 1 ] && [ ! -e "${logPath}.volume-removed" ]; then echo agents-in-the-cloud-system; fi; return 0 ;;
     'volume rm')
@@ -114,7 +114,7 @@ test("fresh install launches privileged System with persistent named volume and 
 test("new installations start System on latest without reading a channel", () => {
   const result = run();
   expect(result.status).toBe(0);
-  expect(result.output).toContain("DOCKER pull ghcr.io/lucasmeijer/agents-in-the-cloud-system:latest");
+  expect(result.output).toContain("DOCKER pull ghcr.io/quest4hub/agents-in-the-cloud-system:latest");
   expect(result.output).not.toContain("DOCKER run --rm");
 });
 
@@ -123,7 +123,7 @@ test("updates follow the installation's Update channel for System", () => {
     const result = run({ installed: true, channel });
     expect(result.status).toBe(0);
     expect(result.output).toContain("DOCKER run --rm --mount source=agents-in-the-cloud-system,target=/data,readonly --entrypoint bun sha256:installed-system -e");
-    expect(result.output).toContain(`DOCKER pull ghcr.io/lucasmeijer/agents-in-the-cloud-system:${channel}`);
+    expect(result.output).toContain(`DOCKER pull ghcr.io/quest4hub/agents-in-the-cloud-system:${channel}`);
   }
 });
 
@@ -523,8 +523,8 @@ test("pre-System Atelier uninstall fails explicitly rather than claiming nothing
 test("fresh installer uses latest in the separate renamed repositories", () => {
   const result = run({});
   expect(result.status).toBe(0);
-  expect(result.output).toContain("DOCKER pull ghcr.io/lucasmeijer/agents-in-the-cloud-system:latest");
-  expect(result.output).toContain("--app-image ghcr.io/lucasmeijer/agents-in-the-cloud:latest");
+  expect(result.output).toContain("DOCKER pull ghcr.io/quest4hub/agents-in-the-cloud-system:latest");
+  expect(result.output).toContain("--app-image ghcr.io/quest4hub/agents-in-the-cloud:latest");
   expect(result.output).not.toContain(":beta");
 });
 

@@ -11,7 +11,7 @@ const settingsSchema = Type.Object({
   appRepository: Type.Optional(Type.String({ pattern: "^[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$" })),
 });
 // Apps from before appRepository was recorded were all published here.
-const upstreamAppRepository = "ghcr.io/lucasmeijer/agents-in-the-cloud";
+const upstreamAppRepository = "ghcr.io/quest4hub/agents-in-the-cloud";
 
 export async function prepareChannelUpdate(settingsPath: string, images: {
   pull: (reference: string) => Promise<void>;

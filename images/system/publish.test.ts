@@ -60,9 +60,9 @@ for (const local of ["amd64", "arm64"]) {
       expect(args).toContain(`org.agents-in-the-cloud.system-version=${systemVersion}`);
     }
     const merge = calls.find(({ args }) => args.includes("imagetools") && args.includes("create"))!;
-    expect(merge.args.slice(-2)).toEqual(["amd64", "arm64"].map(arch => `ghcr.io/lucasmeijer/agents-in-the-cloud-system@${digest(arch)}`));
+    expect(merge.args.slice(-2)).toEqual(["amd64", "arm64"].map(arch => `ghcr.io/quest4hub/agents-in-the-cloud-system@${digest(arch)}`));
     const promote = calls.findLast(({ args }) => args.includes("imagetools") && args.includes("create"))!;
-    expect(promote.args.slice(-3)).toEqual(["--tag", "ghcr.io/lucasmeijer/agents-in-the-cloud-system:latest", `ghcr.io/lucasmeijer/agents-in-the-cloud-system@sha256:${"3".repeat(64)}`]);
+    expect(promote.args.slice(-3)).toEqual(["--tag", "ghcr.io/quest4hub/agents-in-the-cloud-system:latest", `ghcr.io/quest4hub/agents-in-the-cloud-system@sha256:${"3".repeat(64)}`]);
     expect(calls.some(({ args }) => args.some(arg => /binfmt|qemu|:stable/.test(arg)))).toBe(false);
     expect(calls.find(({ args }) => args.includes("login"))?.input).toBe("test-package-token");
     expect(calls.flatMap(call => call.args)).not.toContain("test-package-token");
@@ -72,8 +72,8 @@ for (const local of ["amd64", "arm64"]) {
 test("--stable also moves stable to the verified combined digest", async () => {
   const { calls, error } = await scenario({ stable: true });
   expect(error).toBeUndefined();
-  const promotions = calls.filter(({ args }) => args.includes("imagetools") && args.includes("create") && args.at(-1) === `ghcr.io/lucasmeijer/agents-in-the-cloud-system@sha256:${"3".repeat(64)}`);
-  expect(promotions.map(({ args }) => args.at(-2))).toEqual(["ghcr.io/lucasmeijer/agents-in-the-cloud-system:latest", "ghcr.io/lucasmeijer/agents-in-the-cloud-system:stable"]);
+  const promotions = calls.filter(({ args }) => args.includes("imagetools") && args.includes("create") && args.at(-1) === `ghcr.io/quest4hub/agents-in-the-cloud-system@sha256:${"3".repeat(64)}`);
+  expect(promotions.map(({ args }) => args.at(-2))).toEqual(["ghcr.io/quest4hub/agents-in-the-cloud-system:latest", "ghcr.io/quest4hub/agents-in-the-cloud-system:stable"]);
 });
 
 test("check probes both native builders without registry authentication or writes", async () => {

@@ -112,7 +112,7 @@ No handwritten notes or notes approval loop is required. Commit/push the intende
 
 ## System releases
 
-System is the image (`ghcr.io/lucasmeijer/agents-in-the-cloud-system`) that the installer runs on the computer AgentsInTheCloud is installed on. It's released separately from the app, with its own `latest` and `stable` tags. Installations follow System on their app's Update channel, but only get a new System when someone re-runs the installer. Replacing System interrupts running workspaces. Never call it "System" in user-facing copy. People know it as the installer and the computer AgentsInTheCloud is installed on.
+System is the image (`ghcr.io/quest4hub/agents-in-the-cloud-system`) that the installer runs on the computer AgentsInTheCloud is installed on. It's released separately from the app, with its own `latest` and `stable` tags. Installations follow System on their app's Update channel, but only get a new System when someone re-runs the installer. Replacing System interrupts running workspaces. Never call it "System" in user-facing copy. People know it as the installer and the computer AgentsInTheCloud is installed on.
 
 `packages/shared/src/system-version.ts` is the contract. `systemVersion` says what this System offers, and `requiredSystemVersion` says what the app needs. `bun run release` refuses to move a channel whose System is older than the app requires, and tells you which publish command to run.
 
@@ -121,7 +121,7 @@ System is the image (`ghcr.io/lucasmeijer/agents-in-the-cloud-system`) that the 
 Do this check for every app release, against the System on the same channel (`stable` for stable releases, `latest` for latest). Read the channel's System revision and version from its image labels:
 
 ```sh
-docker buildx imagetools inspect ghcr.io/lucasmeijer/agents-in-the-cloud-system:stable --format '{{json .Image}}' \
+docker buildx imagetools inspect ghcr.io/quest4hub/agents-in-the-cloud-system:stable --format '{{json .Image}}' \
   | jq -c 'to_entries[] | {platform: .key, revision: .value.config.Labels["org.opencontainers.image.revision"], version: .value.config.Labels["org.agents-in-the-cloud.system-version"]}'
 ```
 

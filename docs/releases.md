@@ -13,7 +13,7 @@ The image repositories and the GitHub repository that releases publish to come f
 changes those two lines to release and update from its own account. See
 [Running your own fork](forks.md).
 
-This branch publishes `ghcr.io/lucasmeijer/agents-in-the-cloud:latest` and
+This branch publishes `ghcr.io/quest4hub/agents-in-the-cloud:latest` and
 immutable commit/staging tags. `--stable` also advances its `stable` tag after
 VM acceptance. Atelier hotfix releases remain on `main` and use their original
 image repositories and release command. These two lanes have separate log
@@ -31,7 +31,7 @@ The app and System are released and updated separately. System reports its compa
 Publish System to a channel before any app that needs it: `images/system/publish.sh` moves `latest`, and `--stable` moves `stable` as well. `bun run release` refuses to move an app channel whose System is too old or not published yet.
 
 For the VM test, publish this branch's app and separately publish its System image
-as `ghcr.io/lucasmeijer/agents-in-the-cloud-system:latest` (`images/system/publish.sh` moves latest); this release command
+as `ghcr.io/quest4hub/agents-in-the-cloud-system:latest` (`images/system/publish.sh` moves latest); this release command
 publishes only the app and its workspace dependency. Use the branch's installer
 (which defaults to latest images) and record both tested image digests. The new
 installation starts empty: do not mount Atelier storage or import its settings.
@@ -74,7 +74,7 @@ application build succeeds.
 A real release builds an isolated detached worktree of that SHA, not your working
 files, and removes the worktree afterward. Your branch and local edits are left
 alone. It uses the existing image-building script to reuse/build the deterministic
-workspace image and upload the app as `ghcr.io/lucasmeijer/agents-in-the-cloud:sha-<full-sha>`.
+workspace image and upload the app as `ghcr.io/quest4hub/agents-in-the-cloud:sha-<full-sha>`.
 Each image is built and pushed in two native slices, with `-amd64` and `-arm64`
 staging tags, then combined by digest into a multi-platform manifest. The workspace
 manifest is assembled first so both app slices pin the same workspace digest.

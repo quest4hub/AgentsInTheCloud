@@ -48,7 +48,7 @@ function deferred<T = void>() {
 const oldDigest = `sha256:${"a".repeat(64)}`;
 const newDigest = `sha256:${"b".repeat(64)}`;
 const newerDigest = `sha256:${"c".repeat(64)}`;
-const exact = `ghcr.io/lucasmeijer/agents-in-the-cloud@${newDigest}`;
+const exact = `ghcr.io/quest4hub/agents-in-the-cloud@${newDigest}`;
 function manager(extra: UpdateManagerDeps = {}) {
   return new UpdateManager({
     detectRuntime: async () => ({ currentDigest: oldDigest }),

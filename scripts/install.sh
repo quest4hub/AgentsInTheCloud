@@ -122,9 +122,9 @@ System replacements preserve the agents-in-the-cloud-system volume and interrupt
 Update also installs the newest AgentsInTheCloud app on the installation's selected channel.
 
   --system-image REF   System image (default: the installation's System repository on its
-                      Update channel; ghcr.io/lucasmeijer/agents-in-the-cloud-system:latest
+                      Update channel; ghcr.io/quest4hub/agents-in-the-cloud-system:latest
                       for new installations)
-  --app-image REF      First-install app image (default: ghcr.io/lucasmeijer/agents-in-the-cloud:latest)
+  --app-image REF      First-install app image (default: ghcr.io/quest4hub/agents-in-the-cloud:latest)
   --access-mode MODE  localhost or tailscale (default selected for this machine)
   --action ACTION     install, update, connect, or open
                       connect enables Tailscale without replacing an existing installation

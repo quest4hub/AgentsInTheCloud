@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { detectSelfUpdateRuntime, prepareUpdate, pruneUnusedAgentsInTheCloudImages, pullImageReference, type DockerImage, type PullProgress, type PullLayerProgress } from "../../src/server/docker.ts";
 
-const app = `ghcr.io/lucasmeijer/agents-in-the-cloud@sha256:${"a".repeat(64)}`;
-const workspace = `ghcr.io/lucasmeijer/workspace@sha256:${"b".repeat(64)}`;
+const app = `ghcr.io/quest4hub/agents-in-the-cloud@sha256:${"a".repeat(64)}`;
+const workspace = `ghcr.io/quest4hub/workspace@sha256:${"b".repeat(64)}`;
 const appImage: DockerImage = { Id: "sha256:app" };
 
 const layerA = `sha256:${"c".repeat(64)}`;
@@ -110,7 +110,7 @@ test("Docker pull stream handles progress, exact references and embedded errors 
 });
 
 test("deduplicates dependency cycles and restores mutable names only after verification", async () => {
-  const alias = "ghcr.io/lucasmeijer/workspace:stable";
+  const alias = "ghcr.io/quest4hub/workspace:stable";
   const calls: string[] = [];
   const percentages: (number | undefined)[] = [];
   let tagFails = false;
