@@ -621,7 +621,7 @@ case "$action" in
     fi
     stop_on_failure=1
     run_quiet "Starting AgentsInTheCloud services" docker run -d --name "$system_name" --hostname agents-in-the-cloud-system --privileged --cgroupns=host --restart unless-stopped \
-      --stop-timeout 120 --tmpfs /run --mount source=agents-in-the-cloud-system,target=/data --publish 127.0.0.1:32768:3080 \
+      --stop-timeout 120 --tmpfs /run --mount source=agents-in-the-cloud-system,target=/data --publish 127.0.0.1:3080:3080 \
       "$system_image" --app-image "$app_image" --access-mode "${access_mode:-tailscale}"
     ;;
   connect)
