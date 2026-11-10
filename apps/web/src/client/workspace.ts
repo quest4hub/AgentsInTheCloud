@@ -25,6 +25,7 @@ import { registerWorkspaceDialogControllers } from "./workspace-dialogs.ts";
 import { registerWorkspaceFullscreenController } from "./workspace-fullscreen.ts";
 import { registerWorkspaceNavigationControllers } from "./workspace-navigation.ts";
 import { createWorkspacePresentationController, installWorkspacePresentationTurboStream } from "./workspace-presentation.ts";
+import { ShortcutBindingController } from "./shortcut-binding-controller.ts";
 import { registerWorkspaceSelectionController } from "./workspace-selection.ts";
 import { registerWorkspaceSettingsControllers } from "./workspace-settings.ts";
 import { registerWorkspaceShortcutsController } from "./workspace-shortcuts.ts";
@@ -57,6 +58,7 @@ for (const module of workspaceClientModules) await module.install({ application,
 registerWorkspaceControllers({
   "connection-mode-settings": ConnectionModeSettingsController,
   "pwa-reminder": PwaReminderController,
+  "shortcut-binding": ShortcutBindingController,
   "workspace-presentation": createWorkspacePresentationController(Controller, application, clientHooks),
 });
 registerWorkspaceNavigationControllers();

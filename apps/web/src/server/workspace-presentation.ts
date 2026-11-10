@@ -11,7 +11,6 @@ import { panelHtml } from "@agents-in-the-cloud/design-system/panel";
 import { popupHtml } from "@agents-in-the-cloud/design-system/popup";
 import { tabHtml, tabStripHtml } from "@agents-in-the-cloud/design-system/tab-strip";
 import { domId, escapeHtml, turboStream, workspaceWorkViewLabelDomId } from "@agents-in-the-cloud/shared";
-import { formatShortcutBinding } from "../shortcut-binding.ts";
 import { agentPaneSlotDomId, renderAgentPane, renderMobileAgentAttention, type AgentPaneContribution } from "./agent-pane.ts";
 import { renderPwaReminder } from "./pwa-reminder.ts";
 import type { WorkspaceDeletionState } from "./workspace-registry.ts";
@@ -178,8 +177,9 @@ function renderWorkspaceTemplateOptions(presentation: WorkspacePanePresentation)
 }
 
 function renderWorkspaceTemplatePicker(presentation: WorkspacePanePresentation, launchComposerBinding: string | undefined): string {
+  // Only the client knows which modifier glyphs fit the viewer's keyboard.
   const tip = launchComposerBinding
-    ? `<p class="workspace-template-picker-tip">Tip: <kbd>${escapeHtml(formatShortcutBinding(launchComposerBinding))}</kbd> starts one from the current workspace’s template, with a prompt.</p>`
+    ? `<p class="workspace-template-picker-tip">Tip: <kbd data-controller="shortcut-binding" data-shortcut-binding="${escapeHtml(launchComposerBinding)}"></kbd> starts one from the current workspace’s template, with a prompt.</p>`
     : "";
   return `<form class="workspace-template-picker" method="get" action="/launch-composer" data-turbo-frame="launch_composer" data-turbo="true" data-action="submit->workspace-pane#submitted keydown.esc->workspace-pane#back">
     <input type="hidden" name="workspaceTemplate" value="" data-workspace-pane-target="value">
@@ -314,7 +314,7 @@ function renderEmptyWorkPane(workspaceId: string, commands: NonNullable<Workspac
       label: { kind: "text", text: command.label },
       leadingHtml: command.iconHtml ?? Icons.Plus,
       trailingHtml: shortcutCommand.binding
-        ? `<span class="work-launcher-shortcut">${escapeHtml(formatShortcutBinding(shortcutCommand.binding))}</span>`
+        ? `<span class="work-launcher-shortcut" data-controller="shortcut-binding" data-shortcut-binding="${escapeHtml(shortcutCommand.binding)}"></span>`
         : undefined,
       element: { tag: "button", attributesHtml: 'type="submit"' },
     });

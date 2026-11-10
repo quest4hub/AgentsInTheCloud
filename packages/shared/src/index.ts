@@ -515,7 +515,7 @@ export {
 
 export { focusLikelyOpensSoftwareKeyboard, installSoftwareKeyboardTracking, isTextEntry, softwareKeyboardArranged } from "./software-keyboard.ts";
 export { anchorScrollBottom, changeLayout, layoutAfterEvent, layoutBeforeEvent } from "./layout-transaction.ts";
-export { isApplePlatform } from "./platform.ts";
+export { isApplePlatform, shortcutPrefixBinding } from "./platform.ts";
 
 export type { CableChannelAdapter, CableChannelSubscription } from "./cable.ts";
 

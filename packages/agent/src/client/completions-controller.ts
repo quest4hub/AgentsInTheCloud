@@ -1,6 +1,6 @@
 import { setContentRowLabel } from "@agents-in-the-cloud/design-system/content-row/client";
 import { autocompleteHtml } from "@agents-in-the-cloud/design-system/autocomplete";
-import { agentComposerSendPromptEvent, changeLayout, composerSubmitKey, type AgentComposerSendPromptDetail, focusLikelyOpensSoftwareKeyboard, isApplePlatform, setTextInputValue, type WorkspaceClientCommand, type WorkspaceClientControllerConstructor as StimulusControllerConstructor, type WorkspaceClientHooks } from "@agents-in-the-cloud/shared";
+import { agentComposerSendPromptEvent, changeLayout, composerSubmitKey, type AgentComposerSendPromptDetail, focusLikelyOpensSoftwareKeyboard, isApplePlatform, setTextInputValue, shortcutPrefixBinding, type WorkspaceClientCommand, type WorkspaceClientControllerConstructor as StimulusControllerConstructor, type WorkspaceClientHooks } from "@agents-in-the-cloud/shared";
 import { agentCompletionRequest, insertFileCompletion, insertSlashCommand } from "./completion-input.ts";
 import { composerPromptSuggestion, promptSuggestionKeyAction } from "./composer-state.ts";
 import { createHtmlAutocompleteController } from "./html-autocomplete-controller.ts";
@@ -33,8 +33,8 @@ function promptTemplateBinding(shortcut: string, apple: boolean): string {
 }
 
 export function promptTemplateShortcutConflict(shortcut: string, commands: readonly ShortcutCommand[], apple: boolean): ShortcutCommand | undefined {
-  const binding = promptTemplateBinding(shortcut, apple);
-  return commands.find((command) => command.binding === binding);
+  const binding = shortcutPrefixBinding(promptTemplateBinding(shortcut, apple), apple);
+  return commands.find((command) => command.binding && shortcutPrefixBinding(command.binding, apple) === binding);
 }
 
 function visibleWorkspaceCommands(): ShortcutCommand[] {

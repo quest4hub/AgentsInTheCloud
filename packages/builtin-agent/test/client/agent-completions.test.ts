@@ -139,7 +139,9 @@ describe("agent prompt completion activation", () => {
 
     expect(promptTemplateShortcutConflict("v", commands, true)?.label).toBe("Open VS Code");
     expect(promptTemplateShortcutConflict("s", commands, true)).toBeUndefined();
-    expect(promptTemplateShortcutConflict("v", commands, false)).toBeUndefined();
+    // Canonical ⌘ bindings own the Ctrl+Alt combo on other platforms too.
+    expect(promptTemplateShortcutConflict("v", commands, false)?.label).toBe("Open VS Code");
+    expect(promptTemplateShortcutConflict("s", commands, false)).toBeUndefined();
     expect(promptTemplateShortcutConflict("v", [{ label: "Paste", binding: "Control+Alt+KeyV" }], false)?.label).toBe("Paste");
   });
 

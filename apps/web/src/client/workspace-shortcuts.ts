@@ -1,7 +1,7 @@
 import { contentRowElement, contentRowHtml } from "@agents-in-the-cloud/design-system/content-row";
 import { dialogHtml } from "@agents-in-the-cloud/design-system/dialog";
 import { Icons } from "@agents-in-the-cloud/design-system/icons";
-import { escapeHtml, isApplePlatform, type WorkspaceClientCommand, type WorkspacePaletteItem } from "@agents-in-the-cloud/shared";
+import { escapeHtml, isApplePlatform, shortcutPrefixBinding, type WorkspaceClientCommand, type WorkspacePaletteItem } from "@agents-in-the-cloud/shared";
 import { Controller } from "@hotwired/stimulus";
 import { formatShortcutBinding } from "../shortcut-binding.ts";
 import { submitFormWithFirstButton } from "./form-submission.ts";
@@ -69,7 +69,7 @@ class AgentsInTheCloudShortcutsController extends Controller<HTMLElement> {
     if (!metaAlt && !controlAlt) return;
 
     if (event.key === "Meta" || event.key === "Alt" || event.key === "Control") {
-      if (metaAlt) this.scheduleShortcutOverlay();
+      if (metaAlt || controlAlt) this.scheduleShortcutOverlay();
       return;
     }
 
@@ -88,7 +88,8 @@ class AgentsInTheCloudShortcutsController extends Controller<HTMLElement> {
   };
 
   private readonly keyup = (event: KeyboardEvent): void => {
-    if ((!event.metaKey || !event.altKey) && !this.shortcutOverlayPointerInside) this.hideShortcutOverlay();
+    const holdingPrefix = event.altKey && (isApplePlatform() ? event.metaKey : event.metaKey || event.ctrlKey);
+    if (!holdingPrefix && !this.shortcutOverlayPointerInside) this.hideShortcutOverlay();
   };
 
   private readonly shortcutBlur = (): void => {
@@ -297,14 +298,17 @@ class AgentsInTheCloudShortcutsController extends Controller<HTMLElement> {
   }
 
   private matchesBinding(event: KeyboardEvent, binding: string): boolean {
-    const parts = new Set(binding.split("+").map((part) => part.trim()).filter(Boolean));
+    const apple = isApplePlatform();
+    // Bindings write the app's system prefix ⌘ as "Meta"; other keyboards resolve it to Ctrl.
+    const parts = new Set(shortcutPrefixBinding(binding, apple).split("+").map((part) => part.trim()).filter(Boolean));
     const modifiers = new Set(["Meta", "Alt", "Control", "Shift"]);
     const code = [...parts].find((part) => !modifiers.has(part));
     if (!code) return false;
+    // The keydown gate admits exactly one system-prefix press: ⌘ on Apple, and either Ctrl
+    // or the OS key elsewhere.
     return this.matchesShortcutKey(event, code)
-      && event.metaKey === parts.has("Meta")
+      && (apple ? event.metaKey : event.metaKey || event.ctrlKey) === parts.has(apple ? "Meta" : "Control")
       && event.altKey === parts.has("Alt")
-      && event.ctrlKey === parts.has("Control")
       && event.shiftKey === parts.has("Shift");
   }
 
