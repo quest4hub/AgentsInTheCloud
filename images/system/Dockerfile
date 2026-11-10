@@ -1,4 +1,4 @@
-ARG RUNTIME_IMAGE=ghcr.io/quest4hub/agents-in-the-cloud-docker@sha256:089aca327a3322d7ee2a547a87b5abe1440c59728daa0ce63b43abcbd908ddc1
+ARG RUNTIME_IMAGE=ghcr.io/lucasmeijer/agents-in-the-cloud-docker@sha256:089aca327a3322d7ee2a547a87b5abe1440c59728daa0ce63b43abcbd908ddc1
 FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS bun
 FROM ghcr.io/tailscale/tailscale:v1.102.3@sha256:8c42c4574ab066384fcb72f69e086a2ff1dd3652eb6f56856cee34bcf0d2f680 AS tailscale
 FROM ${RUNTIME_IMAGE}
