@@ -1,11 +1,12 @@
 import { agentKey, ids, type AgentRenderContext } from "@agents-in-the-cloud/agent/server/render-context";
 import { renderReadOnlyTranscript, renderReadOnlyTranscriptDetail } from "@agents-in-the-cloud/agent/server/read-only-transcript";
-import { subscribeWorkspaceAgentBusy } from "@agents-in-the-cloud/agent/server";
+import { subscribeWorkspaceAgentBusy, publishWorkspaceAgentBusy } from "@agents-in-the-cloud/agent/server";
 import { renderWorkspaceCompletionCatalog } from "@agents-in-the-cloud/agent/server/completion-catalog";
+import { activityButtonHtml } from "@agents-in-the-cloud/design-system/activity-button";
 import { buttonHtml } from "@agents-in-the-cloud/design-system/button";
 import { Icons } from "@agents-in-the-cloud/design-system/icons";
 import { renderFollowLatestButton } from "@agents-in-the-cloud/prompt/server";
-import { domId, escapeHtml, turboStream, type CableChannelAdapter } from "@agents-in-the-cloud/shared";
+import { domId, escapeHtml, turboStream, turboStreamResponse, type CableChannelAdapter } from "@agents-in-the-cloud/shared";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { response } from "@agents-in-the-cloud/shared/http";
@@ -80,12 +81,36 @@ export function cliTranscriptChannel(adapter: CliAgentAdapter, agents: Pick<CliA
   };
 }
 
-/** The view switch (terminal ↔ transcript) and the transcript's follow latest, for the floating stack. */
-interface CliTranscriptControls { viewSwitch?: string; followLatest?: string }
+/** Render the composer actions (send/stop button) for CLI agents. */
+export function renderCliAgentComposerActions(workspaceId: string, agentId: string, providerId: string): string {
+  const abortFormId = `cli_agent_abort_${workspaceId}_${agentId}`;
+  const abortAction = `/workspaces/${encodeURIComponent(workspaceId)}/${providerId}-agents/${encodeURIComponent(agentId)}/abort`;
+  const initialLabel = "Send prompt";
+  const activeLabel = "Agent is working — click to stop";
+  return `<form id="${abortFormId}" method="post" action="${escapeHtml(abortAction)}" hidden></form>
+    <span class="composer-primary-action" data-cli-terminal-target="sendStop" data-agent-busy="false" data-agent-stoppable="true" data-agent-abort-form-id="${abortFormId}">${activityButtonHtml({
+      variant: "primary",
+      iconOnly: true,
+      initialLabel,
+      activeLabel,
+      type: "submit",
+      state: "initial",
+      initialContent: { kind: "html", html: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15V5m-4 4 4-4 4 4"/></svg>' },
+      activeContent: { kind: "html", html: '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="6" width="8" height="8" rx="1.5" fill="currentColor" stroke="none"/></svg>' },
+      attributesHtml: `data-popular-button form="${abortFormId}"`,
+    })}</span>`;
+}
+
+/** The view switch (terminal ↔ transcript), ESC key, and the transcript's follow latest, for the floating stack. */
+interface CliTranscriptControls { viewSwitch?: string; followLatest?: string; escapeKey?: string }
 
 export function renderCliTranscriptControls(adapter: CliAgentAdapter): CliTranscriptControls {
   if (!adapter.loadTranscript) return {};
   return {
+    escapeKey: buttonHtml({
+      type: "button", variant: "secondary", content: { kind: "caption", caption: "Esc" },
+      attributesHtml: `data-popular-button data-action="cli-terminal#sendEscapeKey" aria-label="Send Escape key to terminal"`,
+    }),
     viewSwitch: [
       { iconHtml: Icons.Transcript, label: "View transcript", state: "transcript", action: "showTranscript" },
       { iconHtml: Icons.Terminal, label: "Back to terminal", state: "terminal", action: "showTerminal" },
@@ -96,6 +121,24 @@ export function renderCliTranscriptControls(adapter: CliAgentAdapter): CliTransc
     })).join(""),
     followLatest: renderFollowLatestButton('data-cli-terminal-target="transcriptEnd" data-action="cli-terminal#scrollToTranscriptEnd"'),
   };
+}
+
+/** Abort route for CLI agents: stops the terminal process. */
+export async function handleCliAbortRequest(adapter: CliAgentAdapter, agents: CliAgents, request: Request, url: URL): Promise<Response | undefined> {
+  const match = url.pathname.match(/^\/workspaces\/([^/]+)\/([^/]+)-agents\/([^/]+)\/abort$/);
+  if (!match || match[2] !== adapter.id || request.method !== "POST") return undefined;
+  const workspaceId = decodeURIComponent(match[1]!);
+  const agentId = decodeURIComponent(match[3]!);
+  const session = await agents.ready(workspaceId, agentId);
+  // Stop the terminal process.
+  const terminalProcesses = (await import("@agents-in-the-cloud/workspace")).workspaceTerminalProcesses;
+  await terminalProcesses(workspaceId).release(agentId);
+  // Publish busy state change.
+  publishWorkspaceAgentBusy({ workspaceId, agentKey: agentKey(agentId), busy: false });
+  await agents.settleTurn(workspaceId, agentId, new AbortController().signal, "stop");
+  return request.headers.get("accept")?.includes("application/json")
+    ? Response.json({ agent: { agentId, state: "idle", aborted: true } })
+    : turboStreamResponse("");
 }
 
 export function cliTranscriptRoutes(adapter: CliAgentAdapter, agents: CliAgents) {

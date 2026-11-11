@@ -41,11 +41,11 @@ export function renderComposerBody(options: {
 /**
  * The floating stack: buttons overlaid at the bottom right of a transcript or terminal.
  * Each slot is filled by its owner; the order is fixed, bottom to top: open composer
- * (the composer), view switch (the CLI agent), follow latest (the showing transcript).
+ * (the composer), escape key (the CLI agent), view switch (the CLI agent), follow latest (the showing transcript).
  * A hidden button leaves no gap.
  */
-export function renderFloatingStack(slots: { openComposer?: string; viewSwitch?: string; followLatest?: string }): string {
-  return `<div class="floating-stack">${slots.followLatest ?? ""}${slots.viewSwitch ?? ""}${slots.openComposer ?? ""}</div>`;
+export function renderFloatingStack(slots: { openComposer?: string; viewSwitch?: string; followLatest?: string; escapeKey?: string }): string {
+  return `<div class="floating-stack">${slots.followLatest ?? ""}${slots.viewSwitch ?? ""}${slots.escapeKey ?? ""}${slots.openComposer ?? ""}</div>`;
 }
 
 /** Follow latest, for a transcript's slot in the floating stack; hidden until the transcript is scrolled away from its end. */

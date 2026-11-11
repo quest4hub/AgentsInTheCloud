@@ -10,7 +10,7 @@ import type { AgentsInTheCloudEventBus } from "@agents-in-the-cloud/core";
 import type { CliAgentAdapter } from "./adapter.ts";
 import { createCliAgents, type CliAgentTerminal } from "./agents.ts";
 import { cliComposerRoutes } from "./composer-routes.ts";
-import { cliCompletionCatalogId, cliTranscriptAttributes, cliTranscriptChannel, cliTranscriptRoutes, renderCliTranscriptControls, renderCliTranscriptView } from "./transcript-routes.ts";
+import { cliCompletionCatalogId, cliTranscriptAttributes, cliTranscriptChannel, cliTranscriptRoutes, handleCliAbortRequest, renderCliTranscriptControls, renderCliTranscriptView } from "./transcript-routes.ts";
 
 export type { CliAgentConnection } from "@agents-in-the-cloud/agent/server";
 export type { CliAgentSession } from "./adapter.ts";
@@ -45,6 +45,7 @@ export function createCliAgentModule(adapter: CliAgentAdapter): WorkspaceModule 
             collapsible: true,
             promptTemplateButtons: true,
             inputHtml: `<textarea class="composer-input" name="text" rows="2" placeholder="Write your prompt here" aria-label="CLI agent prompt" data-controller="composer-send-hint" data-cli-terminal-target="input" data-agent-completions-target="input" data-action="input->agent-completions#input keydown->cli-terminal#inputKeydown paste->agent-attachments#paste"></textarea>`,
+            sendHtml: renderCliAgentComposerActions(workspaceId, agentId, adapter.id),
           })}
         </form>
         <div class="agent-completion-menu-host" data-agent-completions-target="menu" hidden></div>
@@ -63,6 +64,7 @@ export function createCliAgentModule(adapter: CliAgentAdapter): WorkspaceModule 
         ${composer ? renderTranscriptQuoteAction() : ""}
       </div>
       ${running ? renderTerminalKeyBar("cli-terminal") : ""}
+      ${running && composer ? renderCliAgentComposerActions(workspaceId, agentId, adapter.id) : ""}
       ${composer}
     </section>`;
   }
@@ -98,7 +100,7 @@ export function createCliAgentModule(adapter: CliAgentAdapter): WorkspaceModule 
       });
     },
     cableChannels: adapter.loadTranscript ? [cliTranscriptChannel(adapter, agents)] : [],
-    routes: [{ handle: cliComposerRoutes(adapter.id, agents) }, { handle: cliTranscriptRoutes(adapter, agents) }, { handle: tabRoute }],
+    routes: [{ handle: cliComposerRoutes(adapter.id, agents) }, { handle: cliTranscriptRoutes(adapter, agents) }, { handle: (req, url) => handleCliAbortRequest(adapter, agents, req, url) }, { handle: tabRoute }],
     agentType: {
       id: adapter.id, label: adapter.label, iconHtml: adapter.iconHtml,
       async create({ workspaceId }) {

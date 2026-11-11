@@ -1,5 +1,7 @@
 import { createNativeTerminalTextInputController, createTerminalKeyBarController, agentsInTheCloudObservableTerminalTheme, createObservableTerminalViewer, observableWebSocketUrl, TerminalFrame, type ObservableTerminalViewer } from "@agents-in-the-cloud/observable-terminal/client";
 import { latestExchangeTop } from "@agents-in-the-cloud/agent/client/transcript-navigation";
+import { agentComposerPrimaryAction } from "@agents-in-the-cloud/agent/client/composer-state";
+import { setActivityButtonState } from "@agents-in-the-cloud/design-system/activity-button/client";
 import { anchorScrollBottom, CableTopics, changeLayout, type CableSubscription, composerSubmitKey, errorMessage, type AgentComposerSendPromptDetail, isWorkspacePaneVisible, setTextInputValue, workspaceFileOpenUrl, type WorkspaceClientModule } from "@agents-in-the-cloud/shared";
 
 export const agentsInTheCloudClientModule: WorkspaceClientModule = {
@@ -20,7 +22,7 @@ export const agentsInTheCloudClientModule: WorkspaceClientModule = {
     application.register("native-terminal-text-input", createNativeTerminalTextInputController(Controller));
     application.register("cli-terminal", class extends createTerminalKeyBarController(Controller) {
       static values = { url: String, socket: String, workspaceId: String, agentId: String, transcriptChannel: String };
-      static targets = ["terminal", "connectionStatus", "form", "input", "transcript", "transcriptContent", "transcriptEnd"];
+      static targets = ["terminal", "connectionStatus", "form", "input", "transcript", "transcriptContent", "transcriptEnd", "sendStop"];
       declare readonly element: HTMLElement;
       declare readonly urlValue: string;
       declare readonly socketValue: string;
@@ -36,6 +38,8 @@ export const agentsInTheCloudClientModule: WorkspaceClientModule = {
       declare readonly transcriptContentTarget: HTMLElement;
       declare readonly transcriptEndTarget: HTMLButtonElement;
       declare readonly hasTranscriptTarget: boolean;
+      declare readonly sendStopTarget: HTMLButtonElement;
+      declare readonly hasSendStopTarget: boolean;
       declare readonly hasTerminalTarget: boolean;
       private viewer?: ObservableTerminalViewer;
       protected get accessoryViewer(): ObservableTerminalViewer | undefined { return this.viewer; }
@@ -53,9 +57,12 @@ export const agentsInTheCloudClientModule: WorkspaceClientModule = {
       private transcriptAvailable = false;
       private resize = new ResizeObserver(() => this.frame?.update());
 
+      private composerMutationObserver?: MutationObserver;
       connect(): void {
         terminals.add(this);
         window.addEventListener("agents-in-the-cloud:workspace-pane-visible", this.activate);
+        // Capture ESC key to forward to terminal (like the ESC button in key bar).
+        this.element.addEventListener("keydown", this.paneKeydown, { capture: true });
         if (this.hasFormTarget) {
           setTextInputValue(this.inputTarget, localStorage.getItem(this.draftKey) ?? "");
           this.inputTarget.addEventListener("input", this.inputChanged);
@@ -66,6 +73,15 @@ export const agentsInTheCloudClientModule: WorkspaceClientModule = {
             active: () => this.element.classList.contains("cli-transcript-mode") && this.transcriptTarget.checkVisibility(),
             restored: () => this.transcriptScrolled(),
           });
+        }
+        // Watch for busy state changes to update send/stop button.
+        if (this.hasSendStopTarget) {
+          this.composerMutationObserver = new MutationObserver(() => this.updateSendStopButton());
+          this.composerMutationObserver.observe(this.sendStopTarget, {
+            attributes: true,
+            attributeFilter: ["data-agent-busy", "data-agent-stoppable", "data-agent-abort-form-id"],
+          });
+          this.updateSendStopButton();
         }
         this.activate();
       }
@@ -120,6 +136,8 @@ export const agentsInTheCloudClientModule: WorkspaceClientModule = {
       disconnect(): void {
         terminals.delete(this);
         window.removeEventListener("agents-in-the-cloud:workspace-pane-visible", this.activate);
+        this.element.removeEventListener("keydown", this.paneKeydown, { capture: true });
+        this.composerMutationObserver?.disconnect();
         this.resize.disconnect();
         this.frame?.dispose();
         this.frame = undefined;
@@ -332,6 +350,24 @@ export const agentsInTheCloudClientModule: WorkspaceClientModule = {
         catch (error) { this.failed(); status.textContent = errorMessage(error); status.hidden = false; }
         finally { this.sending = false; }
       }
+      /** Capture ESC key at pane level - aborts if busy, escapes TUI if idle. */
+      private readonly paneKeydown = (event: KeyboardEvent): void => {
+        if (event.key !== "Escape") return;
+        if (!this.viewer || this.element.classList.contains("cli-transcript-mode")) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        // If agent is busy, abort it; otherwise forward ESC to terminal.
+        if (this.hasSendStopTarget && this.sendStopTarget.dataset.agentBusy === "true") {
+          const formId = this.sendStopTarget.dataset.agentAbortFormId;
+          if (formId) {
+            const form = document.getElementById(formId);
+            if (form) form.requestSubmit();
+          }
+        } else {
+          this.viewer.sendInput("\x1b");
+          this.viewer.focus();
+        }
+      };
       /** The terminal replaces the transcript before anything else moves; the composer empties at once. */
       private startSending(fromComposer: boolean): void {
         changeLayout(() => {
@@ -366,6 +402,32 @@ export const agentsInTheCloudClientModule: WorkspaceClientModule = {
       }
       retry(): void {
         this.viewer!.reconnect();
+      }
+      /** Update the send/stop button based on busy state. */
+      updateSendStopButton(): void {
+        if (!this.hasSendStopTarget) return;
+        const button = this.sendStopTarget;
+        const busy = button.dataset.agentBusy === "true";
+        const hasStoppableWork = button.dataset.agentStoppable === "true";
+        const action = agentComposerPrimaryAction(busy, this.inputTarget.value, this.formTarget?.querySelectorAll('input[name="attachment"]').length ?? 0, hasStoppableWork);
+        if (action === "abort") {
+          setActivityButtonState(button, "active");
+          button.type = "submit";
+          button.removeAttribute("name");
+          button.removeAttribute("value");
+          button.setAttribute("form", button.dataset.agentAbortFormId ?? "");
+          return;
+        }
+        setActivityButtonState(button, "initial");
+        button.type = "submit";
+        button.name = "mode";
+        button.value = action;
+        button.removeAttribute("form");
+      }
+      /** Send ESC key to terminal - for the ESC button in the floating stack. */
+      sendEscapeKey(): void {
+        this.viewer?.sendInput("\x1b");
+        this.viewer?.focus();
       }
       focus(): void {
         this.start();
