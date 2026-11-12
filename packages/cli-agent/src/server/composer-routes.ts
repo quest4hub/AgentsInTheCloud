@@ -2,12 +2,14 @@ import { expandSlashCommand } from "@agents-in-the-cloud/agent/server/slash-comm
 import { listFileCompletions, renderFileCompletionMenu } from "@agents-in-the-cloud/agent/server/file-completions";
 import { runAgentNameCommand } from "@agents-in-the-cloud/agent/server/agent-name-command";
 import { agentAttachmentDraftId, copyAttachmentIntoWorkspace, findStagedAttachment, removeStagedAttachments } from "@agents-in-the-cloud/prompt/server";
+import { shellQuote } from "@agents-in-the-cloud/core";
+import { terminalProcessSession } from "@agents-in-the-cloud/observable-terminal/server";
 import { response, textResponse } from "@agents-in-the-cloud/shared/http";
-import type { CliAgents } from "./agents.ts";
+import { checkedWorkspaceShell, type CliAgents } from "./agents.ts";
 
 export function cliComposerRoutes(providerId: string, agents: CliAgents) {
   return async (request: Request, url: URL): Promise<Response | undefined> => {
-    const match = url.pathname.match(/^\/workspaces\/([^/]+)\/([^/]+)-agents\/([^/]+)\/composer(?:\/(completions(?:\/slash-command-expand)?|consumed))?$/);
+    const match = url.pathname.match(/^\/workspaces\/([^/]+)\/([^/]+)-agents\/([^/]+)\/composer(?:\/(completions(?:\/slash-command-expand)?|consumed|escape))?$/);
     if (!match || match[2] !== providerId) return undefined;
     const workspaceId = decodeURIComponent(match[1]!);
     const agentId = decodeURIComponent(match[3]!);
@@ -26,6 +28,12 @@ export function cliComposerRoutes(providerId: string, agents: CliAgents) {
       const form = await request.formData();
       if (form.get("attachmentDraft") !== draftId) return new Response("Invalid draft", { status: 422 });
       await removeStagedAttachments(draftId, form.getAll("attachment").map(String));
+      return new Response(null, { status: 204 });
+    }
+    // Escape reaches the TUI through tmux, so it lands regardless of any viewer's connection.
+    if (request.method === "POST" && operation === "escape") {
+      if ((await agents.terminalState(workspaceId, session)).state !== "running") return new Response(null, { status: 204 });
+      await checkedWorkspaceShell(workspaceId, `tmux send-keys -t ${shellQuote(terminalProcessSession(agentId))} Escape`);
       return new Response(null, { status: 204 });
     }
     if (request.method !== "POST" || operation) return undefined;

@@ -1,4 +1,5 @@
 import { registerAgentTurnSettler } from "@agents-in-the-cloud/agent/server";
+import { agentKey } from "@agents-in-the-cloud/agent/server/render-context";
 import { renderWorkspaceCompletionCatalog } from "@agents-in-the-cloud/agent/server/completion-catalog";
 import { renderTranscriptQuoteAction } from "@agents-in-the-cloud/agent/server/render-transcript";
 import { agentAttachmentDraftId, listStagedAttachments, renderComposerBody, renderFloatingStack, renderOpenComposerButton, agentComposerActions, composerAttachmentAttributes } from "@agents-in-the-cloud/prompt/server";
@@ -10,7 +11,7 @@ import type { AgentsInTheCloudEventBus } from "@agents-in-the-cloud/core";
 import type { CliAgentAdapter } from "./adapter.ts";
 import { createCliAgents, type CliAgentTerminal } from "./agents.ts";
 import { cliComposerRoutes } from "./composer-routes.ts";
-import { cliCompletionCatalogId, cliTranscriptAttributes, cliTranscriptChannel, cliTranscriptRoutes, handleCliAbortRequest, renderCliTranscriptControls, renderCliTranscriptView } from "./transcript-routes.ts";
+import { cliCompletionCatalogId, cliTranscriptAttributes, cliTranscriptChannel, cliTranscriptRoutes, renderCliAgentActions, renderCliEscapeForm, renderCliTranscriptControls, renderCliTranscriptView } from "./transcript-routes.ts";
 
 export type { CliAgentConnection } from "@agents-in-the-cloud/agent/server";
 export type { CliAgentSession } from "./adapter.ts";
@@ -27,6 +28,9 @@ export function createCliAgentModule(adapter: CliAgentAdapter): WorkspaceModule 
     await events.emit("workspace_agent_title_changed", { workspaceId, agentId, title });
     if (workspaceNamed) await events.emit("workspace_title_changed", { workspaceId, title });
   });
+  // Shared turn-busy state: the transcript channel updates it on every turn boundary,
+  // and tab renders read it so a pane opened mid-turn paints the stop button at once.
+  const busyAgents = new Set<string>();
   function failureStatus(error: string) { return `Could not start ${escapeHtml(adapter.label)}: ${escapeHtml(error)}`; }
   async function renderTab(workspaceId: string, agentId: string): Promise<string> {
     const session = await agents.ready(workspaceId, agentId);
@@ -44,16 +48,17 @@ export function createCliAgentModule(adapter: CliAgentAdapter): WorkspaceModule 
             draft: { id: draftId, rowId, attachments: await listStagedAttachments(draftId) },
             collapsible: true,
             promptTemplateButtons: true,
+            sendHtml: renderCliAgentActions(workspaceId, agentId, busyAgents.has(agentKey(agentId))),
             inputHtml: `<textarea class="composer-input" name="text" rows="2" placeholder="Write your prompt here" aria-label="CLI agent prompt" data-controller="composer-send-hint" data-cli-terminal-target="input" data-agent-completions-target="input" data-action="input->agent-completions#input keydown->cli-terminal#inputKeydown paste->agent-attachments#paste"></textarea>`,
-            sendHtml: renderCliAgentComposerActions(workspaceId, agentId, adapter.id),
           })}
         </form>
+        ${renderCliEscapeForm(workspaceId, agentId, `${composerUrl}/escape`)}
         <div class="agent-completion-menu-host" data-agent-completions-target="menu" hidden></div>
         <div id="${cliCompletionCatalogId(workspaceId, agentId)}" data-agent-completions-target="catalog" hidden>${await renderWorkspaceCompletionCatalog(workspaceId, "cli")}</div>
       </div>
     </div>` : "";
     // Permanent keeps a live terminal through page renders; an ended one has none, and must be replaceable.
-    return `<section id="${domId("cli_agent", workspaceId, agentId)}"${running ? " data-turbo-permanent" : ""} class="cli-agent-body agent-composer-pane" data-controller="cli-terminal agent-composer composer-focus${composer ? " agent-attachments transcript-quote" : ""}" data-agent-composer-open-on-select-value="false" data-cli-terminal-url-value="${escapeHtml(url)}" data-cli-terminal-socket-value="${escapeHtml(terminalProcessSocketPath(workspaceId, agentId))}" data-cli-terminal-workspace-id-value="${escapeHtml(workspaceId)}" ${cliTranscriptAttributes(adapter, agentId)} ${composerAttachmentAttributes(draftId, rowId, `agents-in-the-cloud:workspace-pane-visible@window->cli-terminal#refresh agents-in-the-cloud:workspace-agent-focus->cli-terminal#focus agents-in-the-cloud:theme-change@document->cli-terminal#theme ${agentComposerActions}`)}>
+    return `<section id="${domId("cli_agent", workspaceId, agentId)}"${running ? " data-turbo-permanent" : ""} class="cli-agent-body agent-composer-pane" data-controller="cli-terminal agent-composer composer-focus${composer ? " agent-attachments transcript-quote" : ""}" data-agent-composer-open-on-select-value="false" data-cli-terminal-url-value="${escapeHtml(url)}" data-cli-terminal-socket-value="${escapeHtml(terminalProcessSocketPath(workspaceId, agentId))}" data-cli-terminal-escape-url-value="${escapeHtml(`${composerUrl}/escape`)}" data-cli-terminal-workspace-id-value="${escapeHtml(workspaceId)}" ${cliTranscriptAttributes(adapter, agentId)} ${composerAttachmentAttributes(draftId, rowId, `agents-in-the-cloud:workspace-pane-visible@window->cli-terminal#refresh agents-in-the-cloud:workspace-agent-focus->cli-terminal#focus agents-in-the-cloud:theme-change@document->cli-terminal#theme ${agentComposerActions}`)}>
       <div class="cli-terminal-status" role="status">${session.error ? failureStatus(session.error) : terminalStatus(terminal)}</div>
       <div class="cli-agent-stage">
         ${running ? renderTerminalConnectionStatus("cli-terminal") : ""}
@@ -64,7 +69,6 @@ export function createCliAgentModule(adapter: CliAgentAdapter): WorkspaceModule 
         ${composer ? renderTranscriptQuoteAction() : ""}
       </div>
       ${running ? renderTerminalKeyBar("cli-terminal") : ""}
-      ${running && composer ? renderCliAgentComposerActions(workspaceId, agentId, adapter.id) : ""}
       ${composer}
     </section>`;
   }
@@ -99,8 +103,8 @@ export function createCliAgentModule(adapter: CliAgentAdapter): WorkspaceModule 
         await agents.exportWorkspaceHistory(workspaceId);
       });
     },
-    cableChannels: adapter.loadTranscript ? [cliTranscriptChannel(adapter, agents)] : [],
-    routes: [{ handle: cliComposerRoutes(adapter.id, agents) }, { handle: cliTranscriptRoutes(adapter, agents) }, { handle: (req, url) => handleCliAbortRequest(adapter, agents, req, url) }, { handle: tabRoute }],
+    cableChannels: adapter.loadTranscript ? [cliTranscriptChannel(adapter, agents, busyAgents)] : [],
+    routes: [{ handle: cliComposerRoutes(adapter.id, agents) }, { handle: cliTranscriptRoutes(adapter, agents) }, { handle: tabRoute }],
     agentType: {
       id: adapter.id, label: adapter.label, iconHtml: adapter.iconHtml,
       async create({ workspaceId }) {

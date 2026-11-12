@@ -13,7 +13,11 @@
 .cli-agent-body.cli-transcript-mode .cli-transcript-view { display:block; }
 @media (max-width:700px), (pointer:coarse) {
   .cli-agent-body .cli-transcript-view { padding-bottom:172px; }
+  /* The Esc affordance is for keyboard users; touch devices own Escape via the soft keyboard. */
+  .cli-agent-body [data-escape-key-button] { display:none; }
 }
+/* Keep the Esc affordance as compact as its icon-only floating neighbors. */
+.cli-agent-body [data-escape-key-button] { width:38.24px; min-width:38.24px; height:38.24px; padding:0; }
 .cli-agent-body:not(.cli-transcript-mode) [data-cli-terminal-target="transcriptEnd"] { display:none; }
 .cli-agent-body:not(.cli-transcript-mode) [data-cli-transcript-button="terminal"] { display:none; }
 .cli-agent-body:not(.cli-transcript-pending) [data-cli-transcript-button="pending"] { display:none; }

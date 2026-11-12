@@ -1,12 +1,12 @@
 import { agentKey, ids, type AgentRenderContext } from "@agents-in-the-cloud/agent/server/render-context";
 import { renderReadOnlyTranscript, renderReadOnlyTranscriptDetail } from "@agents-in-the-cloud/agent/server/read-only-transcript";
-import { subscribeWorkspaceAgentBusy, publishWorkspaceAgentBusy } from "@agents-in-the-cloud/agent/server";
+import { subscribeWorkspaceAgentBusy } from "@agents-in-the-cloud/agent/server";
 import { renderWorkspaceCompletionCatalog } from "@agents-in-the-cloud/agent/server/completion-catalog";
 import { activityButtonHtml } from "@agents-in-the-cloud/design-system/activity-button";
 import { buttonHtml } from "@agents-in-the-cloud/design-system/button";
 import { Icons } from "@agents-in-the-cloud/design-system/icons";
 import { renderFollowLatestButton } from "@agents-in-the-cloud/prompt/server";
-import { domId, escapeHtml, turboStream, turboStreamResponse, type CableChannelAdapter } from "@agents-in-the-cloud/shared";
+import { domId, escapeHtml, turboStream, type CableChannelAdapter } from "@agents-in-the-cloud/shared";
 import { Type } from "typebox";
 import { Value } from "typebox/value";
 import { response } from "@agents-in-the-cloud/shared/http";
@@ -36,12 +36,47 @@ export function cliTranscriptAttributes(adapter: CliAgentAdapter, agentId: strin
 /** The composer's slash command catalog; turns can add prompt templates, so each finished turn refreshes it. */
 export function cliCompletionCatalogId(workspaceId: string, agentId: string): string { return domId("cli_catalog", workspaceId, agentId); }
 
+/** Where the send/stop button lives in a CLI composer's form; turn boundaries swap its content in place. */
+export function cliAgentActionsId(workspaceId: string, agentId: string): string { return domId("cli_actions", workspaceId, agentId); }
+
+const sendIcon = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15V5m-4 4 4-4 4 4"/></svg>';
+const stopIcon = '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="6" width="8" height="8" rx="1.5" fill="currentColor" stroke="none"/></svg>';
+
+/**
+ * The CLI composer's one button: send while the agent waits, stop while it works.
+ * Stopping is Escape to the CLI's own TUI, which cancels its running turn in place,
+ * so no terminal process is ever touched. State swaps arrive over the transcript channel.
+ */
+export function renderCliAgentActions(workspaceId: string, agentId: string, busy: boolean): string {
+  const label = busy ? "Agent is working — click to stop" : "Send prompt";
+  return `<span class="composer-primary-action" id="${cliAgentActionsId(workspaceId, agentId)}">${activityButtonHtml({
+    variant: "primary",
+    iconOnly: true,
+    initialLabel: label,
+    activeLabel: label,
+    type: "submit",
+    state: busy ? "active" : "initial",
+    initialContent: { kind: "html", html: sendIcon },
+    activeContent: { kind: "html", html: stopIcon },
+    // Busy submits the hidden escape form (the builtin agent's abort pattern); idle submits the composer.
+    attributesHtml: busy ? `data-popular-button form="${cliEscapeFormId(workspaceId, agentId)}"` : "data-popular-button",
+  })}</span>`;
+}
+
+/** The stop button submits here; a native form cannot nest inside the composer's own. */
+export function cliEscapeFormId(workspaceId: string, agentId: string): string {
+  return domId("cli_escape_form", workspaceId, agentId);
+}
+
+export function renderCliEscapeForm(workspaceId: string, agentId: string, url: string): string {
+  return `<form id="${cliEscapeFormId(workspaceId, agentId)}" method="post" action="${escapeHtml(url)}"></form>`;
+}
+
 function cliTranscriptChannelName(adapter: CliAgentAdapter): string { return `${adapter.id}-transcript`; }
 
-/** Publishes whether the transcript is available whenever the CLI starts or finishes a turn, with the transcript itself for panes showing it, and the refreshed completion catalog between turns. */
-export function cliTranscriptChannel(adapter: CliAgentAdapter, agents: Pick<CliAgents, "ready">): CableChannelAdapter {
+/** Publishes whether the transcript is available whenever the CLI starts or finishes a turn, with the transcript itself for panes showing it, the send/stop button swap, and the refreshed completion catalog between turns. The busy set is shared so tab renders read the same state. */
+export function cliTranscriptChannel(adapter: CliAgentAdapter, agents: Pick<CliAgents, "ready" | "terminalState">, busy: Set<string>): CableChannelAdapter {
   // Agent keys identify Agents, which are unique across workspaces.
-  const busy = new Set<string>();
   const watchers = new Set<{ agentKey: string; changed(): void }>();
   subscribeWorkspaceAgentBusy(({ agentKey, busy: started }) => {
     if (started) busy.add(agentKey); else busy.delete(agentKey);
@@ -54,7 +89,12 @@ export function cliTranscriptChannel(adapter: CliAgentAdapter, agents: Pick<CliA
     const available = records?.some((record) => record.kind === "user") ?? false;
     const ctx = context(workspaceId, agentId, adapter.id);
     const transcript = turboStream("replace", ids.transcript(ctx), renderTranscriptContent(ctx, available, includeTranscript && available ? renderReadOnlyTranscript(ctx, records!) : ""));
-    return catalog === undefined ? transcript : `${transcript}${turboStream("update", cliCompletionCatalogId(workspaceId, agentId), catalog)}`;
+    // The composer only exists under a live terminal; swap its button with the rest of the turn boundary.
+    const session = await agents.ready(workspaceId, agentId);
+    const running = (await agents.terminalState(workspaceId, session)).state === "running";
+    let html = transcript;
+    if (running) html += turboStream("replace", cliAgentActionsId(workspaceId, agentId), renderCliAgentActions(workspaceId, agentId, !idle));
+    return catalog === undefined ? html : `${html}${turboStream("update", cliCompletionCatalogId(workspaceId, agentId), catalog)}`;
   }
   return {
     name: cliTranscriptChannelName(adapter),
@@ -81,35 +121,16 @@ export function cliTranscriptChannel(adapter: CliAgentAdapter, agents: Pick<CliA
   };
 }
 
-/** Render the composer actions (send/stop button) for CLI agents. */
-export function renderCliAgentComposerActions(workspaceId: string, agentId: string, providerId: string): string {
-  const abortFormId = `cli_agent_abort_${workspaceId}_${agentId}`;
-  const abortAction = `/workspaces/${encodeURIComponent(workspaceId)}/${providerId}-agents/${encodeURIComponent(agentId)}/abort`;
-  const initialLabel = "Send prompt";
-  const activeLabel = "Agent is working — click to stop";
-  return `<form id="${abortFormId}" method="post" action="${escapeHtml(abortAction)}" hidden></form>
-    <span class="composer-primary-action" data-cli-terminal-target="sendStop" data-agent-busy="false" data-agent-stoppable="true" data-agent-abort-form-id="${abortFormId}">${activityButtonHtml({
-      variant: "primary",
-      iconOnly: true,
-      initialLabel,
-      activeLabel,
-      type: "submit",
-      state: "initial",
-      initialContent: { kind: "html", html: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15V5m-4 4 4-4 4 4"/></svg>' },
-      activeContent: { kind: "html", html: '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="6" width="8" height="8" rx="1.5" fill="currentColor" stroke="none"/></svg>' },
-      attributesHtml: `data-popular-button form="${abortFormId}"`,
-    })}</span>`;
-}
-
 /** The view switch (terminal ↔ transcript), ESC key, and the transcript's follow latest, for the floating stack. */
 interface CliTranscriptControls { viewSwitch?: string; followLatest?: string; escapeKey?: string }
 
 export function renderCliTranscriptControls(adapter: CliAgentAdapter): CliTranscriptControls {
   if (!adapter.loadTranscript) return {};
   return {
+    // Desktop has no key bar (that is soft-keyboard-only), so this carries Escape to the terminal there.
     escapeKey: buttonHtml({
       type: "button", variant: "secondary", content: { kind: "caption", caption: "Esc" },
-      attributesHtml: `data-popular-button data-action="cli-terminal#sendEscapeKey" aria-label="Send Escape key to terminal"`,
+      attributesHtml: `data-popular-button data-escape-key-button title="Abort-Cancel" data-action="cli-terminal#sendEscapeKey" aria-label="Abort-Cancel"`,
     }),
     viewSwitch: [
       { iconHtml: Icons.Transcript, label: "View transcript", state: "transcript", action: "showTranscript" },
@@ -121,24 +142,6 @@ export function renderCliTranscriptControls(adapter: CliAgentAdapter): CliTransc
     })).join(""),
     followLatest: renderFollowLatestButton('data-cli-terminal-target="transcriptEnd" data-action="cli-terminal#scrollToTranscriptEnd"'),
   };
-}
-
-/** Abort route for CLI agents: stops the terminal process. */
-export async function handleCliAbortRequest(adapter: CliAgentAdapter, agents: CliAgents, request: Request, url: URL): Promise<Response | undefined> {
-  const match = url.pathname.match(/^\/workspaces\/([^/]+)\/([^/]+)-agents\/([^/]+)\/abort$/);
-  if (!match || match[2] !== adapter.id || request.method !== "POST") return undefined;
-  const workspaceId = decodeURIComponent(match[1]!);
-  const agentId = decodeURIComponent(match[3]!);
-  const session = await agents.ready(workspaceId, agentId);
-  // Stop the terminal process.
-  const terminalProcesses = (await import("@agents-in-the-cloud/workspace")).workspaceTerminalProcesses;
-  await terminalProcesses(workspaceId).release(agentId);
-  // Publish busy state change.
-  publishWorkspaceAgentBusy({ workspaceId, agentKey: agentKey(agentId), busy: false });
-  await agents.settleTurn(workspaceId, agentId, new AbortController().signal, "stop");
-  return request.headers.get("accept")?.includes("application/json")
-    ? Response.json({ agent: { agentId, state: "idle", aborted: true } })
-    : turboStreamResponse("");
 }
 
 export function cliTranscriptRoutes(adapter: CliAgentAdapter, agents: CliAgents) {
