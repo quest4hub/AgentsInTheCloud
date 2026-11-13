@@ -61,31 +61,32 @@ export class TerminalFrame {
   update(): void {
     // The keyboard is out of the way only temporarily; rows and columns wait for it to go.
     if (softwareKeyboardArranged()) return;
-    const size = this.measured();
+    const size = this.changedSize();
     if (!size) return;
-    clearTimeout(this.pending);
-    this.pending = undefined;
-    if (this.size && this.size.width === size.width && this.size.height === size.height) return;
     if (!this.size) {
       this.apply(size);
       return;
     }
-    // Never touches a scheduled fast apply: an observer callback that happens to
-    // run before it must not demote the transaction's resize into the settle window.
     this.pending = setTimeout(() => {
       this.pending = undefined;
       if (!softwareKeyboardArranged()) this.apply(size);
     }, settleMs);
   }
 
-  /** Apply the geometry a finished transaction just committed, if it differs. */
+  /** Applies the geometry a finished layout transaction committed; callers exclude the soft keyboard. */
   private applyMeasured(): void {
+    const size = this.changedSize();
+    if (size) this.apply(size);
+  }
+
+  /** Measures, dropping a pending settled apply that this measurement supersedes; nothing when unmeasurable or unchanged. */
+  private changedSize(): { width: number; height: number } | undefined {
     const size = this.measured();
     if (!size) return;
-    clearTimeout(this.pending); // exact geometry supersedes a pending settled apply
+    clearTimeout(this.pending);
     this.pending = undefined;
     if (this.size && this.size.width === size.width && this.size.height === size.height) return;
-    this.apply(size);
+    return size;
   }
 
   private measured(): { width: number; height: number } | undefined {

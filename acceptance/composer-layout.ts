@@ -75,8 +75,12 @@ async function scenario(name: string, description: string, body: (recorder: Scen
   if (args.only && !new RegExp(args.only).test(name)) return;
   log(`scenario ${name}`);
   const recorder = await report.scenario(name, description);
+  // A CLI pane's composer toggle resizes the TUI to fit what is visible (D14), so scenarios that
+  // toggle it expect exactly one resize per toggle. The strict tmux equality only holds when a
+  // scenario leaves the terminal at the size it found.
+  const expectedResizes = options.terminalResizes ?? 0;
   const resizesBefore = page.resizes.length;
-  const tmuxBefore = options.terminalResizes ? undefined : await tmuxSizes(setup.workspaceId);
+  const tmuxBefore = expectedResizes === 0 ? await tmuxSizes(setup.workspaceId) : undefined;
   try {
     await body(recorder);
   } catch (error) {
@@ -84,11 +88,10 @@ async function scenario(name: string, description: string, body: (recorder: Scen
   }
   await recorder.file("after.png", await page.screenshot());
   const resizes = page.resizes.slice(resizesBefore);
-  // A CLI pane's composer toggle resizes the TUI to fit what is visible (D14), so scenarios that
-  // toggle it expect exactly one resize per toggle. The strict tmux equality only holds when a
-  // scenario leaves the terminal at the size it found.
-  const expectedResizes = options.terminalResizes ?? 0;
-  recorder.add(check(expectedResizes === 0 ? "0 terminal resize messages" : `${expectedResizes} terminal resize message${expectedResizes === 1 ? "" : "s"} (composer toggles)`, resizes.length === expectedResizes, resizes.length ? resizes.map((item) => `${item.payload} on ${item.url}`).join("; ") : "no {\"type\":\"resize\"} frames sent on terminal WebSockets"));
+  const resizeLabel = expectedResizes === 0
+    ? "0 terminal resize messages"
+    : `${expectedResizes} terminal resize message${expectedResizes === 1 ? "" : "s"} (composer toggles)`;
+  recorder.add(check(resizeLabel, resizes.length === expectedResizes, resizes.length ? resizes.map((item) => `${item.payload} on ${item.url}`).join("; ") : "no {\"type\":\"resize\"} frames sent on terminal WebSockets"));
   if (tmuxBefore) {
     const tmuxAfter = await tmuxSizes(setup.workspaceId);
     const changed = Object.keys({ ...tmuxBefore, ...tmuxAfter }).filter((session) => tmuxBefore[session] !== tmuxAfter[session]);
