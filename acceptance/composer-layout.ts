@@ -332,23 +332,24 @@ if (!await page.visible(sel.cliTranscript)) {
 await page.tap(sel.showTerminal);
 await Bun.sleep(400);
 
-await scenario("mobile-D14-terminal-focus", "D14: focusing the Pi terminal collapses the open composer (keeping its draft) in one step; the terminal moves, never resizes.", async (recorder) => {
+await scenario("mobile-D14-terminal-focus", "D14: tapping the Pi terminal keeps the open composer (and its draft) in place; the terminal gains focus without moving or resizing.", async (recorder) => {
   await openComposer();
   await page.tap(sel.input);
   await page.insertText("Draft that must survive");
   await Bun.sleep(300);
   await page.evaluate<boolean>("(document.activeElement.blur(), true)");
-  const { before, after } = await transition(recorder, "tap terminal", () => page.tap(".cli-agent-stage", { y: -150 }));
+  const { before, after } = await transition(recorder, "tap terminal", () => page.tap(".cli-agent-stage", { y: -150 }), { expectChange: false });
   recorder.add(
-    check("D14: composer collapsed", after.composer === null, JSON.stringify(after.composer)),
+    check("D14: composer stays open", after.composer !== null, JSON.stringify(after.composer)),
     check("D14: terminal has focus", after.focus.includes("gespenst__input"), `focus: ${after.focus}`),
     check("D19: terminal size unchanged (moved, not resized)", before.terminal !== null && after.terminal !== null && before.terminal[2] === after.terminal[2] && before.terminal[3] === after.terminal[3], `${JSON.stringify(before.terminal)} → ${JSON.stringify(after.terminal)}`),
     check("D3: draft kept", await page.evaluate<string>(`[...document.querySelectorAll(".cli-agent-body .composer-input")].find((e) => e.closest(".cli-agent-body").checkVisibility()).value`) === "Draft that must survive", "composer text unchanged"),
-    check("D1: draft dot on open-composer", await page.visible(sel.draftDot), "status dot inside open-composer"),
   );
 });
 
 await scenario("mobile-D21-pi-floating", "D21: on a CLI agent the view switch sits above open-composer, and follow latest above both while reading the transcript.", async (recorder) => {
+  // D14 leaves the composer open now; this scenario reads the closed state's stack.
+  await closeComposer();
   await page.evaluate<boolean>("(document.activeElement.blur(), true)");
   const terminal = await transition(recorder, "terminal", async () => {}, { waitMs: 200, expectChange: false });
   recorder.add(

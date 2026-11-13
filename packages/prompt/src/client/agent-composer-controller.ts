@@ -142,9 +142,10 @@ export function createAgentComposerController(Controller: WorkspaceClientControl
       if (this.composer && this.input) focusComposerText(this.composer, event);
     }
 
-    /** A focused terminal takes the space; the composer collapses and keeps its draft. */
+    /** An embedded tool terminal takes over; the composer collapses and keeps its draft.
+     *  A CLI pane's own terminal is standing furniture, so clicking it never closes the composer. */
     focused(event: FocusEvent): void {
-      if (event.target instanceof Element && event.target.closest(".observable-terminal-host") && this.isOpen) this.close();
+      if (event.target instanceof Element && event.target.closest(".agent-tool-term") && this.isOpen) this.close();
     }
 
     draftChanged(event: Event): void {
