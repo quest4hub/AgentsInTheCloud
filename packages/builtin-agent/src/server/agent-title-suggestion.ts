@@ -1,6 +1,7 @@
 import { createKeyedOperationQueue, type AgentsInTheCloudEventBus } from "@agents-in-the-cloud/core";
 import { errorMessage } from "@agents-in-the-cloud/shared";
-import { getWorkspaceTitle, listWorkspaces, setWorkspaceTitle } from "@agents-in-the-cloud/workspace";
+import { getWorkspaceTitle, setWorkspaceTitle } from "@agents-in-the-cloud/workspace";
+import { workspaceFollowsAgentTitle } from "@agents-in-the-cloud/agent/server/agent-name-command";
 import { resolveNewWorkspaceAgentModel } from "@agents-in-the-cloud/agent/server/model-state";
 import { cheapestAvailableProviderModel, createPiModelRuntime, type ModelRef } from "@agents-in-the-cloud/llm/server";
 import { listWorkspaceAgents, setWorkspaceAgentTitle, untitledAgentTitle, type WorkspaceAgentInfo } from "./agent-store.ts";
@@ -24,17 +25,10 @@ const automaticallyNameWorkspace = createAutomaticWorkspaceNamingGate();
 const automaticallyNameAgent = createAutomaticWorkspaceNamingGate();
 const serializeTitleOperation = createKeyedOperationQueue();
 
-async function workspaceShouldFollowAgentTitle(workspaceId: string, agentTitle: string): Promise<boolean> {
-  const { workspaces } = await listWorkspaces();
-  const workspace = workspaces.find((candidate) => candidate.id === workspaceId);
-  return workspace?.title === null || workspace?.title === agentTitle;
-}
-
 interface AgentTitleStore {
   listAgents(workspaceId: string): Promise<WorkspaceAgentInfo[]>;
   setAgentTitle(agent: WorkspaceAgentInfo, title: string): Promise<WorkspaceAgentInfo>;
-  workspaceShouldFollowAgentTitle(workspaceId: string, agentTitle: string): Promise<boolean>;
-  setWorkspaceTitle(workspaceId: string, title: string): Promise<void>;
+  workspaceFollowsAgentTitle(workspaceId: string, previousTitle: string, title: string): Promise<boolean>;
 }
 
 export function createAgentTitleSetter(store: AgentTitleStore) {
@@ -44,9 +38,8 @@ export function createAgentTitleSetter(store: AgentTitleStore) {
       if (!current) throw new Error(`Agent not found: ${agent.agentId}`);
       if (options.onlyIfUnnamed && current.title !== untitledAgentTitle) return { agent: current, workspaceNamed: false, unchanged: true };
       const renamed = await store.setAgentTitle(current, title);
-      const workspaceShouldFollow = await store.workspaceShouldFollowAgentTitle(agent.workspaceId, current.title);
-      if (workspaceShouldFollow) await store.setWorkspaceTitle(agent.workspaceId, title);
-      return { agent: renamed, workspaceNamed: workspaceShouldFollow };
+      const workspaceNamed = await store.workspaceFollowsAgentTitle(agent.workspaceId, current.title, title);
+      return { agent: renamed, workspaceNamed };
     });
     if (result.unchanged) return result.agent;
     await options.events?.emit("workspace_agent_title_changed", { workspaceId: agent.workspaceId, agentId: agent.agentId, title });
@@ -58,8 +51,7 @@ export function createAgentTitleSetter(store: AgentTitleStore) {
 export const setAgentTitle = createAgentTitleSetter({
   listAgents: listWorkspaceAgents,
   setAgentTitle: setWorkspaceAgentTitle,
-  workspaceShouldFollowAgentTitle,
-  setWorkspaceTitle: async (workspaceId, title) => { await setWorkspaceTitle(workspaceId, title); },
+  workspaceFollowsAgentTitle,
 });
 
 interface AgentTitleSuggestionErrorDetails {

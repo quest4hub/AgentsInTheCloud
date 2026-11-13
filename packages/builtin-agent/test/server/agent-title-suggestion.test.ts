@@ -13,7 +13,7 @@ const agent = (title = "Untitled"): WorkspaceAgentInfo => ({
   path: "/tmp/agent.jsonl",
 });
 
-function titleHarness(workspaceUnnamed: boolean, initialTitle = "Untitled", workspaceFollowsAgentTitle = workspaceUnnamed) {
+function titleHarness(workspaceUnnamed: boolean, initialTitle = "Untitled", followsWorkspace = workspaceUnnamed) {
   let storedAgent = agent(initialTitle);
   const workspaceTitles: string[] = [];
   const events = createAgentsInTheCloudEventBus();
@@ -23,8 +23,11 @@ function titleHarness(workspaceUnnamed: boolean, initialTitle = "Untitled", work
   const setTitle = createAgentTitleSetter({
     listAgents: async () => [storedAgent],
     setAgentTitle: async (current, title) => (storedAgent = { ...current, title }),
-    workspaceShouldFollowAgentTitle: async () => workspaceFollowsAgentTitle,
-    setWorkspaceTitle: async (_workspaceId, title) => { workspaceTitles.push(title); },
+    workspaceFollowsAgentTitle: async (_workspaceId, _previousTitle, title) => {
+      if (!followsWorkspace) return false;
+      workspaceTitles.push(title);
+      return true;
+    },
   });
   return { setTitle, events, storedAgent: () => storedAgent, workspaceTitles, emitted };
 }
