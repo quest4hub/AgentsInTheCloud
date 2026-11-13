@@ -71,12 +71,12 @@ const bottom = (box: Box): number => box ? box[1] + box[3] : Number.NaN;
 let floatingInset = 4;
 const floatingLabel = { opener: "Open composer", followLatest: "Follow latest", pendingTranscript: "Will autoswitch to transcript when agent is done" };
 
-async function scenario(name: string, description: string, body: (recorder: ScenarioRecorder) => Promise<void>): Promise<void> {
+async function scenario(name: string, description: string, body: (recorder: ScenarioRecorder) => Promise<void>, options: { terminalResizes?: number } = {}): Promise<void> {
   if (args.only && !new RegExp(args.only).test(name)) return;
   log(`scenario ${name}`);
   const recorder = await report.scenario(name, description);
   const resizesBefore = page.resizes.length;
-  const tmuxBefore = await tmuxSizes(setup.workspaceId);
+  const tmuxBefore = options.terminalResizes ? undefined : await tmuxSizes(setup.workspaceId);
   try {
     await body(recorder);
   } catch (error) {
@@ -84,10 +84,16 @@ async function scenario(name: string, description: string, body: (recorder: Scen
   }
   await recorder.file("after.png", await page.screenshot());
   const resizes = page.resizes.slice(resizesBefore);
-  const tmuxAfter = await tmuxSizes(setup.workspaceId);
-  recorder.add(check("0 terminal resize messages", resizes.length === 0, resizes.length ? resizes.map((item) => `${item.payload} on ${item.url}`).join("; ") : "no {\"type\":\"resize\"} frames sent on terminal WebSockets"));
-  const changed = Object.keys({ ...tmuxBefore, ...tmuxAfter }).filter((session) => tmuxBefore[session] !== tmuxAfter[session]);
-  recorder.add(check("tmux window sizes unchanged", changed.length === 0, Object.entries(tmuxAfter).map(([session, size]) => `${session}: ${tmuxBefore[session] ?? "—"} → ${size}`).join("; ")));
+  // A CLI pane's composer toggle resizes the TUI to fit what is visible (D14), so scenarios that
+  // toggle it expect exactly one resize per toggle. The strict tmux equality only holds when a
+  // scenario leaves the terminal at the size it found.
+  const expectedResizes = options.terminalResizes ?? 0;
+  recorder.add(check(expectedResizes === 0 ? "0 terminal resize messages" : `${expectedResizes} terminal resize message${expectedResizes === 1 ? "" : "s"} (composer toggles)`, resizes.length === expectedResizes, resizes.length ? resizes.map((item) => `${item.payload} on ${item.url}`).join("; ") : "no {\"type\":\"resize\"} frames sent on terminal WebSockets"));
+  if (tmuxBefore) {
+    const tmuxAfter = await tmuxSizes(setup.workspaceId);
+    const changed = Object.keys({ ...tmuxBefore, ...tmuxAfter }).filter((session) => tmuxBefore[session] !== tmuxAfter[session]);
+    recorder.add(check("tmux window sizes unchanged", changed.length === 0, Object.entries(tmuxAfter).map(([session, size]) => `${session}: ${tmuxBefore[session] ?? "—"} → ${size}`).join("; ")));
+  }
 }
 
 /** Runs an action while tracing, and applies the one-step pass criteria to it. */
@@ -345,7 +351,7 @@ await scenario("mobile-D14-terminal-focus", "D14: tapping the Pi terminal keeps 
     check("D19: terminal size unchanged (moved, not resized)", before.terminal !== null && after.terminal !== null && before.terminal[2] === after.terminal[2] && before.terminal[3] === after.terminal[3], `${JSON.stringify(before.terminal)} → ${JSON.stringify(after.terminal)}`),
     check("D3: draft kept", await page.evaluate<string>(`[...document.querySelectorAll(".cli-agent-body .composer-input")].find((e) => e.closest(".cli-agent-body").checkVisibility()).value`) === "Draft that must survive", "composer text unchanged"),
   );
-});
+}, { terminalResizes: 1 });
 
 await scenario("mobile-D21-pi-floating", "D21: on a CLI agent the view switch sits above open-composer, and follow latest above both while reading the transcript.", async (recorder) => {
   // D14 leaves the composer open now; this scenario reads the closed state's stack.
@@ -366,16 +372,24 @@ await scenario("mobile-D21-pi-floating", "D21: on a CLI agent the view switch si
   await recorder.file("pi-transcript.png", await page.screenshot());
   await page.tap(sel.showTerminal);
   await Bun.sleep(800);
-});
+}, { terminalResizes: 1 });
 
 await scenario("mobile-D18-frozen-send", "D18: sending while the frozen transcript shows switches to the terminal instantly, in the same frame as the composer closing.", async (recorder) => {
   await page.tap(sel.viewTranscript);
   await page.waitFor(sel.cliTranscript, 15_000);
   await Bun.sleep(800);
   await openComposer();
+  // Enter the text without focusing the field (the input event is what the app reacts to):
+  // this scenario tests sending from the frozen transcript, and a predicted soft keyboard
+  // would only add a keyboard-settle follow-up whose timing races with the reply landing.
   await resetComposerText();
-  await page.tap(sel.input);
-  await page.insertText("Reply with just the word OK.");
+  await page.evaluate<boolean>(`(() => {
+    const input = [...document.querySelectorAll(${JSON.stringify(sel.input)})].find((e) => e.checkVisibility());
+    if (!input) return false;
+    input.value = "Reply with just the word OK.";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  })()`);
   await Bun.sleep(300);
   const { before, after } = await transition(recorder, "send from the frozen transcript", () => page.tap(".cli-agent-body .composer-send button"), { waitMs: 1200 });
   recorder.add(
@@ -392,7 +406,7 @@ await scenario("mobile-D18-frozen-send", "D18: sending while the frozen transcri
   await recorder.file("pi-transcript-after-turn.png", await page.screenshot());
   await page.tap(sel.showTerminal);
   await Bun.sleep(800);
-});
+}, { terminalResizes: 2 });
 
 // A Terminal view gets its size the first time it is shown; the scenario starts after that.
 await page.navigate(terminalUrl, ".terminal-view .observable-terminal-host");

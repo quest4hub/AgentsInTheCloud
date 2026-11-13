@@ -16,7 +16,7 @@ export interface TerminalFrameOptions {
   stage: HTMLElement;
   /** Holds the terminal at a fixed pixel size. */
   host: HTMLElement;
-  /** The terminal's size with the composer closed and the keyboard down. */
+  /** The terminal's size for the current layout (a pane may shrink it while its composer is open). */
   measure(): { width: number; height: number };
   /** The host's size changed; the viewer fits and reports its new rows and columns. */
   resized(): void;
@@ -26,8 +26,9 @@ export interface TerminalFrameOptions {
  * Keeps a terminal's rows and columns fixed while the composer, the key row or
  * the soft keyboard take space: the stage clips it, and a focused terminal is
  * offset to keep its cursor above the keyboard. The PTY is resized only when
- * the space itself changes (rotation, window size), with the keyboard down,
- * once the new size has settled.
+ * the space itself changes (composer toggle, rotation, window size), with the
+ * keyboard down — right away for a finished layout transaction, whose geometry
+ * is final in one step, and once the new size has settled otherwise.
  */
 export class TerminalFrame {
   private size?: { width: number; height: number };
@@ -49,16 +50,19 @@ export class TerminalFrame {
 
   private readonly layoutChanged = (): void => {
     this.frameCursor();
-    this.update();
+    // A finished transaction commits final geometry in one step (composer open
+    // or closed, keyboard shown or gone), so resize right away and within the
+    // same rendered frame as everything else the transaction moved. The observer
+    // path below stays for untransactional changes like rotation and resizing.
+    if (!softwareKeyboardArranged()) this.applyMeasured();
   };
 
   /** Re-measure after the space around the terminal may have changed. */
   update(): void {
     // The keyboard is out of the way only temporarily; rows and columns wait for it to go.
     if (softwareKeyboardArranged()) return;
-    const { width, height } = this.options.measure();
-    if (width <= 0 || height <= 0) return;
-    const size = { width: Math.floor(width), height: Math.floor(height) };
+    const size = this.measured();
+    if (!size) return;
     clearTimeout(this.pending);
     this.pending = undefined;
     if (this.size && this.size.width === size.width && this.size.height === size.height) return;
@@ -66,10 +70,28 @@ export class TerminalFrame {
       this.apply(size);
       return;
     }
+    // Never touches a scheduled fast apply: an observer callback that happens to
+    // run before it must not demote the transaction's resize into the settle window.
     this.pending = setTimeout(() => {
       this.pending = undefined;
       if (!softwareKeyboardArranged()) this.apply(size);
     }, settleMs);
+  }
+
+  /** Apply the geometry a finished transaction just committed, if it differs. */
+  private applyMeasured(): void {
+    const size = this.measured();
+    if (!size) return;
+    clearTimeout(this.pending); // exact geometry supersedes a pending settled apply
+    this.pending = undefined;
+    if (this.size && this.size.width === size.width && this.size.height === size.height) return;
+    this.apply(size);
+  }
+
+  private measured(): { width: number; height: number } | undefined {
+    const { width, height } = this.options.measure();
+    if (width <= 0 || height <= 0) return;
+    return { width: Math.floor(width), height: Math.floor(height) };
   }
 
   private apply(size: { width: number; height: number }): void {

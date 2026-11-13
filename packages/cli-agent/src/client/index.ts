@@ -1,6 +1,6 @@
 import { createNativeTerminalTextInputController, createTerminalKeyBarController, agentsInTheCloudObservableTerminalTheme, createObservableTerminalViewer, observableWebSocketUrl, TerminalFrame, type ObservableTerminalViewer } from "@agents-in-the-cloud/observable-terminal/client";
 import { latestExchangeTop } from "@agents-in-the-cloud/agent/client/transcript-navigation";
-import { anchorScrollBottom, CableTopics, changeLayout, type CableSubscription, composerSubmitKey, errorMessage, type AgentComposerSendPromptDetail, isWorkspacePaneVisible, setTextInputValue, workspaceFileOpenUrl, type WorkspaceClientModule } from "@agents-in-the-cloud/shared";
+import { anchorScrollBottom, CableTopics, changeLayout, type CableSubscription, composerSubmitKey, errorMessage, type AgentComposerSendPromptDetail, isWorkspacePaneVisible, setTextInputValue, softwareKeyboardArranged, workspaceFileOpenUrl, type WorkspaceClientModule } from "@agents-in-the-cloud/shared";
 
 export const agentsInTheCloudClientModule: WorkspaceClientModule = {
   id: "cli-agent",
@@ -81,8 +81,15 @@ export const agentsInTheCloudClientModule: WorkspaceClientModule = {
         const stage = this.terminalTarget.parentElement!;
         this.frame = new TerminalFrame({
           stage, host: this.terminalTarget,
-          // The whole pane below the status line: composer and key row only clip it.
-          measure: () => ({ width: stage.clientWidth, height: this.element.clientHeight - stage.offsetTop }),
+          // With the composer open and no soft keyboard, the TUI fits what is visible
+          // (the builtin transcript reflows the same way); otherwise it takes the whole
+          // pane below the status line, and a soft keyboard only clips it.
+          measure: () => ({
+            width: stage.clientWidth,
+            height: this.element.classList.contains("agent-composer-open") && !softwareKeyboardArranged()
+              ? stage.clientHeight
+              : this.element.clientHeight - stage.offsetTop,
+          }),
           resized: () => this.viewer?.refresh(),
         });
         this.resize.observe(this.element);
